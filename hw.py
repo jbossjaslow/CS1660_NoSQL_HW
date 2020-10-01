@@ -2,35 +2,48 @@ import boto3
 import botocore
 import sys
 import csv
+import json
+
+bucket_name = 'datacont-josh'
+server_name = 'us-west-2'
+
+boto3.setup_default_session(region_name = server_name)
 
 s3 = boto3.resource('s3',
     aws_access_key_id='AKIA56R6KGFX5MWQRPW5',
-    aws_secret_access_key='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')
-
-bucketName = 'datacont-josh'
-serverName = 'us-east-2'
+    aws_secret_access_key='Q/RvgjOHBKQEhwWIu9ijWOW81h0PbKdPUkAU8ysx',
+    region_name = server_name)
 
 try:
-    s3.create_bucket(Bucket = bucketName,
+    bucket = s3.create_bucket(Bucket = bucket_name,
         CreateBucketConfiguration = {
-            'LocationConstraint': serverName
+            'LocationConstraint': server_name
         }
     )
-except:
-    print("This bucket already exists")
+    bucket.Acl().put(ACL = 'public-read')
 
-bucket = s3.Bucket(bucketName)
-bucket.Acl().put(ACL = 'public-read')
+except botocore.exceptions.ClientError as err:
+    # print("This bucket already exists")
+    if err.response['Error']['Code'] == 'BucketAlreadyOwnedByYou':
+        bucket = s3.Bucket(bucket_name)
+
+except Exception as e:
+    sys.exit(e)
 
 # Upload a file, 'test.jpg' into the newly created bucket
-s3.Object('datacont', 'test.jpg').put(Body = open('./test.jpg','rb'))
+# s3.Object(bucket_name, 'test.jpg').put(Body = open('./test.jpg','rb'))
 
-dyndb = boto3.resource('dynamodb', region_name = serverName)
+dyndb = boto3.resource('dynamodb',
+    aws_access_key_id='AKIA56R6KGFX5MWQRPW5',
+    aws_secret_access_key='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',
+    region_name = server_name)
 
-# The first time that we defina a table, we use:
+table_name = 'DataTable-josh'
+
+# The first time that we define a table, we use:
 try:
     table = dyndb.create_table(
-        TableName = 'DataTable',
+        TableName = table_name,
         KeySchema = [
             { 'AttributeName': 'PartitionKey', 'KeyType': 'HASH' },
             { 'AttributeName': 'RowKey', 'KeyType': 'RANGE' }
@@ -44,28 +57,35 @@ try:
             'WriteCapacityUnits': 5
         }
     )
-except:
-    # If the table has been previously defined, use:
-    table = dyndb.Table("DataTable")
+
+except botocore.exceptions.ClientError as err:
+    if err.response['Error']['Code'] == 'ResourceInUseException':
+        # If the table has been previously defined, use:
+        table = dyndb.Table(table_name)
+    else:
+        sys.exit(err.response)
+
+except Exception as e:
+    sys.exit(e)
 
 # Wait for the table to be created
 try:
-    table.meta.client.get_waiter('table_exists').wait(TableName = 'DataTable')
+    table.meta.client.get_waiter('table_exists').wait(TableName = table_name)
 
-except botocore.exceptions.NoCredentialsError:
-    sys.exit("Error with credentials")
+except botocore.exceptions.NoCredentialsError as e:
+    sys.exit(e)
 
-except:
-    print("Other error")
+except Exception as e:
+    sys.exit(e)
 
 # CSV manipulation
-urlbase = "https://s3-" + serverName + ".amazonaws.com/" + bucketName + "/"
-with open('./experiments.csv', 'rb') as csvfile:
-    csvf = csv.reader(csvfile, delimited = ',', quotechar = '|')
+urlbase = "https://s3-" + server_name + ".amazonaws.com/" + bucket_name + "/"
+with open('./experiments.csv', 'r') as csvfile:
+    csvf = csv.reader(csvfile, delimiter = ',', quotechar = '|')
     for item in csvf:
-        body = open('./datafiles\\'+item[3], 'rb')
-        s3.Object(bucketName, item[3].put(Body = body))
-        md = s3.Object(bucketName, item[3]).Acl().put(ACL = 'public-read')
+        body = open('./datafiles/'+item[3], 'rb')
+        s3.Object(bucket_name, item[3]).put(Body = body)
+        md = s3.Object(bucket_name, item[3]).Acl().put(ACL = 'public-read')
 
         # Set URL for the data file to be publicly readable
         url = urlbase + item[3]
@@ -80,15 +100,20 @@ with open('./experiments.csv', 'rb') as csvfile:
 
         try:
             table.put_item(Item = metadata_item)
-        except:
-            print("Item may already be there or another failure")
+        except Exception as e:
+            sys.exit(e)
 
 # Search for an Item
-response = table.get_item(
-    Key = {
-        'PartitionKey': 'experiment3',
-        'RowKey': '4'
-    }
-)
+choice = '3'
+try:
+    response = table.get_item(
+        Key = {
+            'PartitionKey': 'experiment' + choice,
+            'RowKey': 'data' + choice
+        }
+    )
+except Exception as e:
+    sys.exit("Error" + e)
+
 item = response['Item']
-print(item)
+print(json.dumps(item, indent=4))
