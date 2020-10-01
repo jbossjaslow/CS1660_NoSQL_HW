@@ -10,8 +10,8 @@ server_name = 'us-west-2'
 boto3.setup_default_session(region_name = server_name)
 
 s3 = boto3.resource('s3',
-    aws_access_key_id='AKIA56R6KGFX5MWQRPW5',
-    aws_secret_access_key='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',
+    aws_access_key_id='',
+    aws_secret_access_key='',
     region_name = server_name)
 
 try:
